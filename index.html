@@ -5,196 +5,291 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Country Explorer</title>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;700&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
- 
-    :root {
-      --bg: #f5f2ee;
-      --card: #ffffff;
-      --text: #1a1a1a;
-      --muted: #888;
-      --accent: #2c5f2e;
-      --border: #e0dbd4;
-    }
- 
-    body {
-      font-family: 'DM Sans', sans-serif;
-      background-color: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
- 
-    header {
-      padding: 3rem 2rem 2rem;
-      text-align: center;
-      border-bottom: 1px solid var(--border);
-    }
- 
-    header h1 {
-      font-family: 'Playfair Display', serif;
-      font-size: 2.8rem;
-      letter-spacing: -0.02em;
-      color: var(--text);
-    }
- 
-    header p {
-      color: var(--muted);
-      margin-top: 0.5rem;
-      font-size: 0.95rem;
-    }
- 
-    #status {
-      text-align: center;
-      padding: 2rem;
-      color: var(--muted);
-      font-size: 0.95rem;
-    }
- 
-    #status.error {
-      color: #c0392b;
-    }
- 
-    #countries-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-      gap: 1.5rem;
-      padding: 2rem;
-      max-width: 1200px;
-      margin: 0 auto;
-    }
- 
-    .country-card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      overflow: hidden;
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
-    }
- 
-    .country-card:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 12px 30px rgba(0,0,0,0.08);
-    }
- 
-    .country-card img {
-      width: 100%;
-      height: 160px;
-      object-fit: cover;
-      border-bottom: 1px solid var(--border);
-    }
- 
-    .card-body {
-      padding: 1.2rem;
-    }
- 
-    .card-body h2 {
-      font-family: 'Playfair Display', serif;
-      font-size: 1.15rem;
-      margin-bottom: 0.6rem;
-    }
- 
-    .card-body p {
-      font-size: 0.85rem;
-      color: var(--muted);
-      margin-bottom: 0.3rem;
-    }
- 
-    .card-body p span {
-      color: var(--text);
-      font-weight: 500;
-    }
- 
-    .region-tag {
-      display: inline-block;
-      margin-top: 0.8rem;
-      padding: 0.2rem 0.7rem;
-      background: #eaf2ea;
-      color: var(--accent);
-      border-radius: 20px;
-      font-size: 0.75rem;
-      font-weight: 500;
-    }
-  </style>
+  <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
- 
+
   <header>
     <h1>Country Explorer</h1>
     <p>Browsing countries from the REST Countries API</p>
   </header>
- 
-  <div id="status">Loading countries...</div>
-  <div id="countries-grid"></div>
- 
+
+  <main class="app-shell">
+    <section class="controls" aria-label="Country controls">
+      <div class="field">
+        <label for="search-input">Search countries</label>
+        <input id="search-input" type="search" placeholder="Try name, capital, or language" autocomplete="off" />
+      </div>
+
+      <div class="field">
+        <label for="region-filter">Filter by region</label>
+        <select id="region-filter">
+          <option value="All">All regions</option>
+        </select>
+      </div>
+
+      <div class="field field-inline">
+        <label for="favorites-only">Favorites</label>
+        <div class="toggle-row">
+          <input id="favorites-only" type="checkbox" />
+          <span>Show favorites only</span>
+        </div>
+      </div>
+    </section>
+
+    <div class="status-row">
+      <p id="status" aria-live="polite">Loading countries...</p>
+      <div id="loading-state" class="loading" role="status" aria-live="polite">
+        <span class="spinner" aria-hidden="true"></span>
+        <span>Loading...</span>
+      </div>
+    </div>
+
+    <div id="error-state" class="error-box" hidden>
+      <p id="error-message">Something went wrong while loading countries.</p>
+      <button id="retry-button" type="button">Try again</button>
+    </div>
+
+    <section id="countries-grid" aria-label="Countries"></section>
+  </main>
+
   <script>
+    const API_URL = 'https://restcountries.com/v3.1/all?fields=name,flags,capital,population,region,languages,cca3';
+    const FAVORITES_STORAGE_KEY = 'countryExplorerFavorites';
+
     const grid = document.getElementById('countries-grid');
     const status = document.getElementById('status');
- 
-    async function fetchCountries() {
+    const searchInput = document.getElementById('search-input');
+    const regionFilter = document.getElementById('region-filter');
+    const favoritesOnlyInput = document.getElementById('favorites-only');
+    const loadingState = document.getElementById('loading-state');
+    const errorState = document.getElementById('error-state');
+    const errorMessage = document.getElementById('error-message');
+    const retryButton = document.getElementById('retry-button');
+
+    let allCountries = [];
+    let favoriteIds = loadFavorites();
+
+    function normalizeText(value) {
+      return (value || '')
+        .toString()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+    }
+
+    function loadFavorites() {
       try {
-        // Fetch all countries from the API
-        const response = await fetch('https://restcountries.com/v3.1/all?fields=name,flags,capital,population,region,languages');
- 
-        // Check if the response is OK
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
-        }
- 
-        const data = await response.json();
- 
-        // Log the full response so we can understand the JSON structure
-        console.log('Full API response:', data);
-        console.log('Example country object:', data[0]);
- 
-        // Hide loading message
-        status.textContent = `Showing ${data.length} countries`;
- 
-        // Sort alphabetically by name
-        data.sort((a, b) => a.name.common.localeCompare(b.name.common));
- 
-        // Display each country as a card
-        data.forEach(country => {
-          const card = document.createElement('div');
-          card.classList.add('country-card');
- 
-          // Safely extract languages (nested object)
-          const languages = country.languages
-            ? Object.values(country.languages).join(', ')
-            : 'N/A';
- 
-          // Safely extract capital (array)
-          const capital = country.capital ? country.capital[0] : 'N/A';
- 
-          // Format population with commas
-          const population = country.population
-            ? country.population.toLocaleString()
-            : 'N/A';
- 
-          card.innerHTML = `
-            <img src="${country.flags?.png}" alt="Flag of ${country.name.common}" />
-            <div class="card-body">
-              <h2>${country.name.common}</h2>
-              <p>Capital: <span>${capital}</span></p>
-              <p>Population: <span>${population}</span></p>
-              <p>Languages: <span>${languages}</span></p>
-              <span class="region-tag">${country.region || 'Unknown'}</span>
-            </div>
-          `;
- 
-          grid.appendChild(card);
-        });
- 
+        const saved = localStorage.getItem(FAVORITES_STORAGE_KEY);
+        const parsed = saved ? JSON.parse(saved) : [];
+        return new Set(Array.isArray(parsed) ? parsed : []);
       } catch (error) {
-        // Handle errors gracefully
-        console.error('Error fetching countries:', error);
-        status.textContent = 'Something went wrong loading the data. Please try again later.';
-        status.classList.add('error');
+        console.warn('Could not read favorites from localStorage.', error);
+        return new Set();
       }
     }
- 
-    // Run the fetch
+
+    function saveFavorites() {
+      localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...favoriteIds]));
+    }
+
+    function toggleFavorite(countryId) {
+      if (favoriteIds.has(countryId)) {
+        favoriteIds.delete(countryId);
+      } else {
+        favoriteIds.add(countryId);
+      }
+
+      saveFavorites();
+    }
+
+    function setLoading(isLoading) {
+      loadingState.hidden = !isLoading;
+      searchInput.disabled = isLoading;
+      regionFilter.disabled = isLoading;
+    }
+
+    function setError(message) {
+      if (!message) {
+        errorState.hidden = true;
+        errorMessage.textContent = '';
+        status.classList.remove('error');
+        return;
+      }
+
+      errorState.hidden = false;
+      errorMessage.textContent = message;
+      status.classList.add('error');
+    }
+
+    function updateRegionOptions(countries) {
+      const regions = [...new Set(countries.map((country) => country.region).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b));
+
+      regionFilter.innerHTML = '<option value="All">All regions</option>';
+      regions.forEach((region) => {
+        const option = document.createElement('option');
+        option.value = region;
+        option.textContent = region;
+        regionFilter.appendChild(option);
+      });
+    }
+
+    function createCountryCard(country) {
+      const card = document.createElement('article');
+      card.classList.add('country-card');
+
+      const languages = country.languages
+        ? Object.values(country.languages).join(', ')
+        : 'N/A';
+      const capital = country.capital ? country.capital[0] : 'N/A';
+      const population = country.population
+        ? country.population.toLocaleString()
+        : 'N/A';
+      const isFavorite = favoriteIds.has(country.id);
+      const favoriteClass = isFavorite ? 'is-favorite' : '';
+      const favoriteAriaLabel = isFavorite
+        ? `Remove ${country.name.common} from favorites`
+        : `Add ${country.name.common} to favorites`;
+
+      card.innerHTML = `
+        <img src="${country.flags?.png || ''}" alt="Flag of ${country.name.common}" loading="lazy" />
+        <div class="card-body">
+          <button class="favorite-btn ${favoriteClass}" type="button" data-country-id="${country.id}" aria-label="${favoriteAriaLabel}" aria-pressed="${isFavorite}">★</button>
+          <h2>${country.name.common}</h2>
+          <p>Capital: <span>${capital}</span></p>
+          <p>Population: <span>${population}</span></p>
+          <p>Languages: <span>${languages}</span></p>
+          <span class="region-tag">${country.region || 'Unknown'}</span>
+        </div>
+      `;
+
+      return card;
+    }
+
+    function renderCountries() {
+      const term = normalizeText(searchInput.value);
+      const selectedRegion = regionFilter.value;
+      const favoritesOnly = favoritesOnlyInput.checked;
+
+      if (!allCountries.length) {
+        grid.innerHTML = '';
+        status.textContent = 'No country data is available right now.';
+        return;
+      }
+
+      const filteredCountries = allCountries.filter((country) => {
+        const matchesSearch = !term || country.searchIndex.includes(term);
+        const matchesRegion = selectedRegion === 'All' || country.region === selectedRegion;
+        const matchesFavorites = !favoritesOnly || favoriteIds.has(country.id);
+
+        return matchesSearch && matchesRegion && matchesFavorites;
+      });
+
+      grid.innerHTML = '';
+
+      if (filteredCountries.length === 0) {
+        const hasActiveFilters = Boolean(term) || selectedRegion !== 'All' || favoritesOnly;
+        status.textContent = hasActiveFilters
+          ? 'No countries match your current search and filters.'
+          : 'No countries available.';
+
+        grid.innerHTML = '<article class="empty-state">No results found. Try clearing your search or changing filters.</article>';
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      filteredCountries.forEach((country) => fragment.appendChild(createCountryCard(country)));
+      grid.appendChild(fragment);
+
+      status.textContent = `Showing ${filteredCountries.length} of ${allCountries.length} countries · Favorites: ${favoriteIds.size}`;
+      status.classList.remove('error');
+    }
+
+    async function fetchCountries() {
+      setLoading(true);
+      setError('');
+      status.textContent = 'Loading countries...';
+
+      try {
+        const response = await fetch(API_URL);
+
+        if (!response.ok) {
+          if (response.status === 429) {
+            const retryAfter = response.headers.get('Retry-After');
+            throw new Error(retryAfter ? `RATE_LIMIT:${retryAfter}` : 'RATE_LIMIT');
+          }
+
+          throw new Error(`API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        data.sort((a, b) => a.name.common.localeCompare(b.name.common));
+
+        allCountries = data.map((country) => {
+          const name = country.name?.common || '';
+          const capital = country.capital ? country.capital.join(' ') : '';
+          const languages = country.languages ? Object.values(country.languages).join(' ') : '';
+          const id = country.cca3 || name;
+
+          return {
+            ...country,
+            id,
+            searchIndex: normalizeText(`${name} ${capital} ${languages}`)
+          };
+        });
+
+        updateRegionOptions(allCountries);
+        renderCountries();
+      } catch (error) {
+        console.error('Error fetching countries:', error);
+        grid.innerHTML = '';
+        status.textContent = 'Could not load countries.';
+
+        if (error.message.startsWith('RATE_LIMIT')) {
+          const retryAfter = error.message.split(':')[1];
+          const rateLimitMessage = retryAfter
+            ? `API rate limit reached. Try again in about ${retryAfter} seconds.`
+            : 'API rate limit reached. Please wait a bit and try again.';
+          setError(rateLimitMessage);
+        } else {
+          setError('Something went wrong loading the data. Please check your connection and try again.');
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    searchInput.addEventListener('input', renderCountries);
+    searchInput.addEventListener('search', renderCountries);
+    searchInput.addEventListener('keyup', (event) => {
+      if (event.key === 'Enter') {
+        renderCountries();
+      }
+    });
+    regionFilter.addEventListener('change', renderCountries);
+    favoritesOnlyInput.addEventListener('change', renderCountries);
+    retryButton.addEventListener('click', fetchCountries);
+
+    grid.addEventListener('click', (event) => {
+      const button = event.target.closest('.favorite-btn');
+      if (!button) {
+        return;
+      }
+
+      const countryId = button.dataset.countryId;
+      if (!countryId) {
+        return;
+      }
+
+      toggleFavorite(countryId);
+      renderCountries();
+    });
+
     fetchCountries();
   </script>
- 
+
 </body>
 </html>
