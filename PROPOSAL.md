@@ -1,11 +1,11 @@
-# mini-project-3-API-Powered-App
+# Mini-Project-3-API-Powered-App
 
 
 ## What I'm building: (one sentence)
 - A country explorer app where users can search and filter countries to view details like population, capital, region, flag, and languages. 
 
 ## Which API I'm using: (name and URL)
-- REST Countries - restcountries.com 
+- REST Countries - [restcountries.com] 
 
 ## Why I chose this: (what interests you about this data?)
 - I chose like API because there was a lot of data to work with and it is very visual--every country has a falg, demographic info, and geographic context that makes it interesting for a browsing experience.
